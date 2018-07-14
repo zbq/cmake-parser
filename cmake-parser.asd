@@ -6,7 +6,7 @@
   :license  "MIT"
   :version "0.1.0"
   :serial t
-  :depends-on (#:esrap)
+  :depends-on (#:esrap #:alexandria)
   :components ((:file "package")
                (:file "cmake-parser")
 			   (:file "example")))

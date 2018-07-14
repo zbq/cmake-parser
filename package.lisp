@@ -3,5 +3,8 @@
 (defpackage #:cmake-parser
   (:use #:cl)
   (:export #:parse-file
-		   #:parse-string))
+		   #:parse-string
+		   #:expand-argument
+		   #:grammar
+		   #:test-all))
 

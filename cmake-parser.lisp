@@ -2,30 +2,39 @@
 
 (in-package #:cmake-parser)
 
-(defvar *bracket-argument-parsing* nil)
-(defvar *bracket-open-=-len* 0)
-(defvar *bracket-close-]-got* nil)
-(defvar *bracket-close-=-len* 0)
+(defvar *bracket-argument-parsing* nil "whether we are parsing bracket argument")
+(defvar *bracket-open-=-len* 0 "length of '=' in '[=...['")
+(defvar *bracket-close-]-got* nil "whether we got first ']' of ']=...]'")
+(defvar *bracket-close-=-len* 0 "length of '=' in ']=...]'")
 
-(esrap:defrule file-elements (esrap:* file-element))
+; file         ::=  file_element*
+(esrap:defrule file (esrap:* file-element)
+  (:lambda (elements)
+	(remove nil elements)))
 
-(esrap:defrule file-element (or (and command-invocation (and (esrap:* space)
-															 line-ending))
-								(and (esrap:* (or bracket-comment space))
-									 line-ending))
-  (:destructure (cmd ending)
-				(declare (ignore ending))
-				cmd))
+; file_element ::=  command_invocation line_ending |
+;                   (bracket_comment|space)* line_ending
+; FIX: add (* space) before line-ending
+(esrap:defrule file-element (or (and command-invocation (esrap:* space) line-ending)
+								(and (esrap:* (or bracket-comment space)) line-ending))
+  (:lambda (prod)
+	(first prod)))
 
+; line_ending  ::=  line_comment? newline
 (esrap:defrule line-ending (and (esrap:? line-comment) newline)
-  (:constant nil))
+  (:lambda (prod)
+	(first prod)))
 
-(esrap:defrule space (esrap:+ (or #\space #\tab)))
+; space        ::=  <match '[ \t]+'>
+(esrap:defrule space (esrap:+ (or #\space #\tab))
+  (:constant " "))
 
-(esrap:defrule newline (or #\return
-						   #\linefeed
-						   (and #\return #\linefeed)))
+; newline      ::=  <match '\n'>
+(esrap:defrule newline (and #\linefeed)
+  (:constant "
+"))
 
+; command_invocation  ::=  space* identifier space* '(' arguments ')'
 (esrap:defrule command-invocation (and (esrap:* space)
 									   identifier
 									   (esrap:* space)
@@ -40,44 +49,53 @@
 (defun identifier-rest-char? (char)
   (or (alphanumericp char) (char= char #\_)))
 
+; identifier          ::=  <match '[A-Za-z_][A-Za-z0-9_]*'>
 (esrap:defrule identifier (and (identifier-first-char? character)
 							   (esrap:* (identifier-rest-char? character)))
   (:text t))
 
+; arguments           ::=  argument? separated_arguments*
 (esrap:defrule arguments (and (esrap:? argument)
 							  (esrap:* sep-arguments))
-  (:destructure (arg seps)
-				(let ((seps (remove nil seps)))
-				  (if arg (cons arg seps) seps))))
+  (:lambda (prod)
+	(remove nil (alexandria:flatten prod))))
 
-(esrap:defrule sep-arguments (or sep-arguments1 sep-arguments2))
+; separated_arguments ::=  separation+ argument? |
+;                          separation* '(' arguments ')'
+(esrap:defrule sep-arguments (or (and (esrap:+ separation)
+									  (esrap:? argument))
+								 (and (esrap:* separation)
+									  #\( arguments #\)))
+  (:lambda (prod)
+	(if (= (length prod) 2)
+		(second prod)
+		`("(" ,@(third prod) ")"))))
 
-(esrap:defrule sep-arguments1 (and (esrap:+ separation)
-								   (esrap:? argument))
-  (:destructure (sep arg)
-				(declare (ignore sep))
-				arg))
+; separation          ::=  space | line_ending
+(esrap:defrule separation (or space #\; line-ending))
 
-(esrap:defrule sep-arguments2 (and (esrap:* separation)
-								   #\( arguments #\))
-  (:destructure (sep left args right)
-				(declare (ignore sep left right))
-				args))
-
-(esrap:defrule separation (or space line-ending))
-
+; argument ::=  bracket_argument | quoted_argument | unquoted_argument
 (esrap:defrule argument (or bracket-argument quoted-argument unquoted-argument))
 
-(esrap:defrule bracket-argument (and bracket-open bracket-close)
-  (:text t))
+#|Brackets do not nest. 
+Bracket argument content consists of all text between the opening and closing brackets, 
+except that one newline immediately following the opening bracket, if any, is ignored. 
+No evaluation of the enclosed content, such as Escape Sequences or Variable References, is performed. 
+A bracket argument is always given to the command invocation as exactly one argument.
+|#
+; bracket_argument ::=  bracket_open bracket_content bracket_close
+(esrap:defrule bracket-argument (and bracket-open (esrap:? newline) bracket-close)
+  (:lambda (prod)
+	(third prod)))
 
-(defun parsing-bracket-argument (str)
+(defun parsing-bracket-argument (str) ; [=...[
   (setf *bracket-argument-parsing* t)
-  (setf *bracket-open-=-len* (length (cadr str)))
+  (setf *bracket-open-=-len* (length (cadr str))) ; length of '='
   (setf *bracket-close-]-got* nil)
   (setf *bracket-close-=-len* 0)
   t)
 
+; bracket_open     ::=  '[' '='* '['
 (esrap:defrule bracket-open (parsing-bracket-argument (and #\[ (esrap:* #\=) #\[))
   (:constant nil))
 
@@ -86,16 +104,17 @@
 	((not *bracket-argument-parsing*) nil)
 	((char= char #\]) (if *bracket-close-]-got*
 						  (if (= *bracket-open-=-len* *bracket-close-=-len*)
-							  (setf *bracket-argument-parsing* nil)
-							  (setf *bracket-close-=-len* 0))
+							  (setf *bracket-argument-parsing* nil) ; yes, bracket closed
+							  (setf *bracket-close-=-len* 0) ; discard ']==' if length of '=' does not match
+							  )
 						  (progn
-							(setf *bracket-close-]-got* t)
+							(setf *bracket-close-]-got* t) ; first ] found
 							(setf *bracket-close-=-len* 0)))
 	 t)
 	((char= char #\=) (when *bracket-close-]-got*
 						(incf *bracket-close-=-len*))
 	 t)
-	(t (setf *bracket-close-]-got* nil)
+	(t (setf *bracket-close-]-got* nil) ; ']==abc]==]', any char that is not ']' or '=' destroy match
 	   t)))
 
 (esrap:defrule bracket-argument-char (bracket-argument-char? character))
@@ -105,24 +124,45 @@
   (not *bracket-argument-parsing*))
 
 (esrap:defrule bracket-close (bracket-close-found? (esrap:+ bracket-argument-char))
-  (:lambda (chs)
-	(subseq chs 0 (- (length chs) 2 *bracket-open-=-len*)))) ; trim ]=*]
+  (:lambda (prod)
+	(esrap:text (subseq prod 0 (- (length prod) 2 *bracket-open-=-len*))))) ; trim ]=...]
 
+#|
+Quoted argument content consists of all text between opening and closing quotes. 
+Both Escape Sequences and Variable References are evaluated. A quoted argument 
+is always given to the command invocation as exactly one argument.
+|#
+; quoted_argument     ::=  '"' quoted_element* '"'
 (esrap:defrule quoted-argument (and #\" (esrap:* quoted-element) #\")
-  (:text t))
+  (:lambda (prod)
+	(esrap:text (second prod))))
 
+; FIX: quoted_continuation should be placed before escape-sequence, otherwise it
+;      will be captured by escape-sequence
+; quoted_element      ::=  <any character except '\' or '"'> |
+;                          escape_sequence |
+;                          quoted_continuation
 (esrap:defrule quoted-element (or (not (or #\\ #\"))
-								  escape-sequence
-								  quoted-continuation))
+								  quoted-continuation
+								  escape-sequence))
 
-(esrap:defrule quoted-continuation (and #\\ newline))
+; The final \ on any line ending in an odd number of backslashes is treated as a 
+; line continuation and ignored along with the immediately following newline character. 
+; quoted_continuation ::=  '\' newline
+(esrap:defrule quoted-continuation (and #\\ #\linefeed)
+  (:constant nil))
 
+; do not support legacy
+; unquoted_argument ::=  unquoted_element+ | unquoted_legacy
 (esrap:defrule unquoted-argument (esrap:+ unquoted-element)
   (:text t))
 
-(esrap:defrule unquoted-element (or (not (or space #\( #\) #\# #\" #\\))
+; unquoted_element  ::=  <any character except whitespace or one of '()#"\'> |
+;                        escape_sequence
+(esrap:defrule unquoted-element (or (not (or #\space #\tab #\return #\linefeed #\( #\) #\# #\" #\\ #\;))
 									escape-sequence))
 
+; escape_sequence  ::=  escape_identity | escape_encoded | escape_semicolon
 (esrap:defrule escape-sequence (or escape-identity
 								   escape-encoded
 								   escape-semicolon))
@@ -130,22 +170,39 @@
 (defun escape-identity-char? (char)
   (not (or (alphanumericp char) (char= char #\;))))
 
+; escape_identity  ::=  '\' <match '[^A-Za-z0-9;]'>
 (esrap:defrule escape-identity (and #\\ (escape-identity-char? character))
   (:lambda (prod)
 	(second prod)))
 
-; \t \t \n
-(esrap:defrule escape-encoded (and #\\ (or #\t #\r #\n)))
+; escape_encoded   ::=  '\t' | '\r' | '\n'
+(esrap:defrule escape-encoded (and #\\ (or #\t #\r #\n))
+  (:lambda (prod)
+	(cond
+	  ((string= (second prod) "t") #\tab)
+	  ((string= (second prod) "r") #\return)
+	  (t #\linefeed))))
 
-; \;
-(esrap:defrule escape-semicolon (and #\\ #\;))
+#|
+A \; outside of any Variable References encodes itself but may be used in an 
+Unquoted Argument to encode the ; without dividing the argument value on it. 
+A \; inside Variable References encodes the literal ; character.
+|#
+; escape_semicolon ::=  '\;'
+(esrap:defrule escape-semicolon (and #\\ #\;)
+  (:constant ";"))
 
+; bracket_comment ::=  '#' bracket_argument
 ; #[=*[xxxxxxxx]=*]
-(esrap:defrule bracket-comment (and #\# bracket-argument))
+(esrap:defrule bracket-comment (and #\# bracket-argument)
+  (:constant nil))
 
+; line_comment ::=  '#' <any text not starting in a bracket_argument
+;                        and not containing a newline>
 ; #xxxxxxx
 (esrap:defrule line-comment (and #\# (esrap:! (and #\[ (esrap:* #\=) #\[))
-								 (esrap:* (not newline))))
+								 (esrap:* (not newline)))
+  (:constant nil))
 
 (defun expand-argument (arg bindings)
   (let ((pos2 (search "}" arg)))
@@ -157,27 +214,49 @@
 						   (expand-argument (subseq arg (+ 1 pos2)) bindings))
 			  (expand-argument (concatenate 'string
 											(subseq arg 0 pos1)
-											(gethash (subseq arg (+ 2 pos1) pos2)
-													 bindings "")
+											(format nil "~A"
+													(gethash (subseq arg (+ 2 pos1) pos2)
+															 bindings ""))
 											(subseq arg (+ 1 pos2))) bindings))))))
+
+(defun grammar ()
+  (let ((str (make-array '(0) :element-type 'character
+						 :fill-pointer 0 :adjustable t)))
+	(with-output-to-string (s str)
+	  (esrap:describe-grammar 'file s))
+	str))
+
+(defun slurp (pathname)
+  (with-open-stream (in (open pathname :element-type 'character))
+	(let* ((buffer (make-array (file-length in)
+							   :element-type 'character
+							   :fill-pointer t))
+		   (pos (read-sequence buffer in)))
+	  (setf (fill-pointer buffer) pos)
+	  buffer)))
+
+; \r\n -> \n, add trailing newline to simplify grammar rule definition
+(defun convert-newline (str)
+  (let ((buffer (make-array (+ 1 (length str))
+							:element-type 'character
+							:fill-pointer 0
+							:adjustable t)))
+	(with-output-to-string (s buffer)
+	  (do ((pos 0)
+		   (bak 0 pos))
+		  ((null pos))
+		(setf pos (search '(#\return #\linefeed) str :start2 pos))
+		(format s "~A~A" (subseq str bak pos) #\linefeed)
+		(if pos (setf pos (+ 2 pos))))
+	  buffer)))
 
 (defun parse-string (str)
   (let ((*bracket-argument-parsing* nil)
 		(*bracket-open-=-len* 0)
 		(*bracket-close-]-got* nil)
 		(*bracket-close-=-len* 0))
-	(let* ((len (length str))
-		   (last (elt str (- len 1)))
-		   (s (if (or (char= last #\return)
-					  (char= last #\linefeed))
-				  str
-				  (concatenate 'string str (string #\newline))))) ; add \n to simplify parsing rule definition
-	  (remove nil (esrap:parse 'file-elements s)))))
+	(remove nil (esrap:parse 'file (convert-newline str)))))
 
 (defun parse-file (pathname)
-  (let ((lines (with-open-file (in pathname)
-				 (loop for line = (read-line in nil)
-					while line collect line))))
-	(remove nil (esrap:parse 'file-elements
-							 (format nil "~{~A~%~}" lines)))))
+  (parse-string (slurp pathname)))
 
