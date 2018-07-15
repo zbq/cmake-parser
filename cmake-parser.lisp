@@ -204,22 +204,27 @@ A \; inside Variable References encodes the literal ; character.
 								 (esrap:* (not newline)))
   (:constant nil))
 
-(defun expand-argument (arg bindings)
+(defun expand-argument (arg binding)
+  "Expand argument if it contains variable reference.
+You should provide a variable binding hash-table.
+Ex. arg: 'Hello ${someone}', binding: 'someone'->'Bob',
+it will expand to 'Hello Bob'."
   (let ((pos2 (search "}" arg)))
 	(if (null pos2)
 		arg
 		(let ((pos1 (search "${" arg :from-end t :end2 pos2)))
 		  (if (null pos1)
 			  (concatenate 'string (subseq arg 0 (+ 1 pos2))
-						   (expand-argument (subseq arg (+ 1 pos2)) bindings))
+						   (expand-argument (subseq arg (+ 1 pos2)) binding))
 			  (expand-argument (concatenate 'string
 											(subseq arg 0 pos1)
 											(format nil "~A"
 													(gethash (subseq arg (+ 2 pos1) pos2)
-															 bindings ""))
-											(subseq arg (+ 1 pos2))) bindings))))))
+															 binding ""))
+											(subseq arg (+ 1 pos2))) binding))))))
 
 (defun grammar ()
+  "Return cmake grammar."
   (let ((str (make-array '(0) :element-type 'character
 						 :fill-pointer 0 :adjustable t)))
 	(with-output-to-string (s str)
@@ -251,6 +256,7 @@ A \; inside Variable References encodes the literal ; character.
 	  buffer)))
 
 (defun parse-string (str)
+  "Parse cmake script string, return a list of command invocation."
   (let ((*bracket-argument-parsing* nil)
 		(*bracket-open-=-len* 0)
 		(*bracket-close-]-got* nil)
@@ -258,5 +264,6 @@ A \; inside Variable References encodes the literal ; character.
 	(remove nil (esrap:parse 'file (convert-newline str)))))
 
 (defun parse-file (pathname)
+  "Parse cmake script file, return a list of command invocation."
   (parse-string (slurp pathname)))
 

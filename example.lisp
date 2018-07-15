@@ -100,17 +100,20 @@ world\\
 
 (defun test-common-usage ()
   (let ((binding (make-hash-table :test 'equal))
-		(prod (parse-string "SET(TARGET_NAME \"HelloWorld\")
-ADD_EXECUTABLE(${TARGET_NAME} hello.cpp world.cpp)")))
+		(prod (parse-string "# A demo helloworld
+                             SET(TARGET_NAME \"HelloWorld\")
+                             ADD_EXECUTABLE(${TARGET_NAME} hello.cpp world.cpp)")))
 	(loop for call in prod
-	   do (cond
-			((string-equal "SET" (first call))
-			 (setf (gethash (second call) binding) (third call)))
-			((string-equal "ADD_EXECUTABLE" (first call))
-			 (format t "bin: ~A, src: ~{~A ~}~%"
-					 (expand-argument (second call) binding)
-					 (cddr call)))
-			(t (format t "Not Supported Command Invocation"))))))
+	   do (progn
+			(format t "~{~A ~}~%" call)
+			(cond
+			  ((string-equal "SET" (first call))
+			   (setf (gethash (second call) binding) (third call)))
+			  ((string-equal "ADD_EXECUTABLE" (first call))
+			   (format t "bin: ~A, src: ~{~A ~}~%"
+					   (expand-argument (second call) binding)
+					   (cddr call)))
+			  (t (format t "Not Supported Command Invocation")))))))
 
 (defun test-all ()
   (test-crlf)
