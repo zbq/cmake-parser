@@ -5,19 +5,19 @@ This is a project to parse cmake scripts, it will return a list of command invoc
 ## API
 
 1. expand-argument (arg binding)
-   Expand argument if it contains variable reference.
-   You should provide a variable binding hash-table.
-   Ex. arg: 'Hello ${someone}', binding: 'someone'->'Bob',
-   it will expand to 'Hello Bob'.
+     Expand argument if it contains variable reference.
+     You should provide a variable binding hash-table.
+     Ex. arg: 'Hello ${someone}', binding: 'someone'->'Bob',
+     it will expand to 'Hello Bob'.
 
 2. grammar ()
-   Return the cmake grammar.
+     Return the cmake grammar.
 
 3. parse-string (str)
-   Parse cmake script string, return a list of command invocation.
+     Parse cmake script string, return a list of command invocation.
 
 4. parse-file (pathname)
-   Parse cmake script file, return a list of command invocation.
+     Parse cmake script file, return a list of command invocation.
 
 ## Example
 
@@ -39,9 +39,10 @@ This is a project to parse cmake scripts, it will return a list of command invoc
                  (t (format t "Not Supported Command Invocation")))))))
 
 This will output: 
-    SET TARGET_NAME HelloWorld 
-    ADD_EXECUTABLE ${TARGET_NAME} hello.cpp world.cpp 
-    bin: HelloWorld, src: hello.cpp world.cpp
+
+    - SET TARGET_NAME HelloWorld 
+    - ADD_EXECUTABLE ${TARGET_NAME} hello.cpp world.cpp 
+    - bin: HelloWorld, src: hello.cpp world.cpp
 
 ## CMake language grammar
 
