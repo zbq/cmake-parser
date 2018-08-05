@@ -1,6 +1,6 @@
 # cmake-parser
 
-This is a project to parse cmake scripts, it will return a list of command invocation.
+This is a project to parse cmake scripts, it will parse script into a list of command invocation.
 
 ## API
 
