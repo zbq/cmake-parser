@@ -154,7 +154,8 @@ is always given to the command invocation as exactly one argument.
 
 ; do not support legacy
 ; unquoted_argument ::=  unquoted_element+ | unquoted_legacy
-(esrap:defrule unquoted-argument (esrap:+ unquoted-element)
+; handle something like xx="yy zz"
+(esrap:defrule unquoted-argument (esrap:+ (and unquoted-element (esrap:? (and #\" (esrap:* quoted-element) #\"))))
   (:text t))
 
 ; unquoted_element  ::=  <any character except whitespace or one of '()#"\'> |
